@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -9,6 +8,7 @@ import uvicorn
 from reporter import generate_html_report
 from scanner import NetworkScanner
 
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -46,7 +46,7 @@ async def index(request: Request):
 @app.post("/scan")
 async def do_scan(target: str = Form(...), mode: str = Form(...)):
     global CURRENT_SCAN
-    logger.info(f"Запрос на сканирование подсети: {target} [Режим: {mode}]")
+    logger.info(f"Получен запрос на сканирование подсети: {target} [Режим: {mode}]")
         
     if CURRENT_SCAN["status"] == "scanning":
         logger.warning("Сканирование уже выполняется. Запрос отклонен.")
@@ -56,7 +56,7 @@ async def do_scan(target: str = Form(...), mode: str = Form(...)):
     CURRENT_SCAN["target"] = target
 
     try:
-        # Прямой асинхронный вызов без блокирования основного Event Loop
+        # ИСПРАВЛЕНО: Вызываем напрямую через await новый асинхронный метод сканера!
         result = await scanner.scan_async(target, mode)
 
         if "error" not in result:
@@ -98,5 +98,4 @@ async def get_logs():
         return {"logs": [f"Не удалось прочитать файл логов: {e}"]}
 
 if __name__ == "__main__":
-    # Запуск БЕЗ флага --reload, чтобы Uvicorn не убивал фоновые процессы сканирования
     uvicorn.run("main.py:app", host="127.0.0.1", port=8000, reload=False)
