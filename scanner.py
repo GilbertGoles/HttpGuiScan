@@ -5,8 +5,10 @@ import xml.etree.ElementTree as ET
 logger = logging.getLogger("network_scanner.scanner")
 
 class NetworkScanner:
+    def __init__(self):
+        self.proc = None  # Ссылка на текущий запущенный подпроцесс Nmap
+
     async def scan_async(self, target: str, mode: str) -> dict:
-        # Высокоскоростные пресеты
         scan_presets = {
             "stealth": ["-Pn", "-sS", "-T4", "--open", "--min-rate", "1000", "-F"],
             "fast": ["-Pn", "-F", "-T4", "--min-rate", "1000"],
@@ -16,14 +18,13 @@ class NetworkScanner:
         }
         
         args = scan_presets.get(mode, scan_presets["normal"])
-        
-        # ИСПРАВЛЕНО: Убираем "sudo" из массива. Процесс унаследует root от main.py автоматически.
         full_args = ["nmap", "-oX", "-"] + args + [target]
         
         logger.info(f"Запуск процесса: {' '.join(full_args)}")
         
         try:
-            proc = await asyncio.create_subprocess_exec(
+            # Запускаем процесс и сохраняем ссылку на него в контекст класса
+            self.proc = await asyncio.create_subprocess_exec(
                 "nmap", *full_args[1:],
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -31,21 +32,26 @@ class NetworkScanner:
             
             stdout_chunks = []
             while True:
-                line = await proc.stdout.readline()
+                line = await self.proc.stdout.readline()
                 if not line:
                     break
                 stdout_chunks.append(line)
                 
-            stderr_data = await proc.stderr.read()
-            await proc.wait()
+            stderr_data = await self.proc.stderr.read()
+            await self.proc.wait()
             
             full_stdout = b"".join(stdout_chunks).decode('utf-8', errors='ignore')
             err_msg = stderr_data.decode('utf-8', errors='ignore').strip()
             
-            if proc.returncode != 0:
-                logger.error(f"Nmap завершился с кодом {proc.returncode}. Ошибка: {err_msg}")
+            # Проверяем, не завершился ли процесс принудительно (код -15 или -9 при terminate/kill)
+            if self.proc.returncode != 0:
+                if self.proc.returncode in [-15, -9, 143]:
+                    logger.info("Процесс Nmap был принудительно остановлен пользователем.")
+                    return {"error": "Сканирование прервано оператором."}
+                
+                logger.error(f"Nmap завершился с кодом {self.proc.returncode}. Ошибка: {err_msg}")
                 if not err_msg:
-                    err_msg = f"Процесс завершился с кодом {proc.returncode} (сбой сигналов системы или прав)"
+                    err_msg = f"Процесс завершился с кодом {self.proc.returncode}"
                 return {"error": f"Nmap error: {err_msg}"}
                 
             return self.parse_xml_output(full_stdout)
@@ -53,6 +59,26 @@ class NetworkScanner:
         except Exception as e:
             logger.error(f"Ошибка выполнения подпроцесса Nmap: {e}", exc_info=True)
             return {"error": str(e)}
+        finally:
+            self.proc = None  # Сбрасываем процесс по окончании
+
+    async def stop_current_scan(self) -> bool:
+        """Убивает запущенный процесс Nmap, если он существует"""
+        if self.proc and self.proc.returncode is None:
+            try:
+                logger.info(f"Отправка сигнала завершения SIGTERM в процесс Nmap (PID: {self.proc.pid})")
+                self.proc.terminate()  # Посылаем SIGTERM
+                # Даем процессу 2 секунды на корректное завершение, если нет — убиваем жестко
+                try:
+                    await asyncio.wait_for(self.proc.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Процесс Nmap проигнорировал SIGTERM. Отправка SIGKILL...")
+                    self.proc.kill()
+                return True
+            except Exception as e:
+                logger.error(f"Не удалось остановить процесс Nmap: {e}")
+                return False
+        return False
 
     def parse_xml_output(self, xml_data: str) -> dict:
         hosts_data = []
