@@ -40,12 +40,12 @@ except Exception as e:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     logger.info("Клиент подключился к Web UI панели управления.")
-    # ЖЕЛЕЗОБЕТОННЫЙ СИНТАКСИС: Передаем именованный context, 
-    # где внутри обязательно лежит "request": request
+    # ИСПРАВЛЕНО: Объект request передан первым позиционным аргументом,
+    # как этого требует новая версия FastAPI/Starlette.
     return templates.TemplateResponse(
-        name="index.html",
-        context={
-            "request": request,
+        request,
+        "index.html",
+        {
             "scan_data": CURRENT_SCAN,
             "target": CURRENT_SCAN["target"],
         }
@@ -94,9 +94,6 @@ async def get_logs():
     except Exception as e:
         return {"logs": [f"Не удалось прочитать файл логов: {e}"]}
 
-
-if __name__ == "__main__":
-    uvicorn.run("main.py:app", host="127.0.0.1", port=8000, reload=True)
 
 if __name__ == "__main__":
     uvicorn.run("main.py:app", host="127.0.0.1", port=8000, reload=True)
