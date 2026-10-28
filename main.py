@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("network_scanner.main")
-logger.info("Запуск стабильного асинхронного ядра NetScan...")
+logger.info("Запуск NetScan ядра со встроенным контролем процессов...")
 
 app = FastAPI(title="Network Scanner Core")
 
@@ -56,7 +56,6 @@ async def do_scan(target: str = Form(...), mode: str = Form(...)):
     CURRENT_SCAN["target"] = target
 
     try:
-        # ИСПРАВЛЕНО: Вызываем напрямую через await новый асинхронный метод сканера!
         result = await scanner.scan_async(target, mode)
 
         if "error" not in result:
@@ -64,7 +63,7 @@ async def do_scan(target: str = Form(...), mode: str = Form(...)):
             CURRENT_SCAN["summary"] = result["summary"]
             logger.info(f"Данные сессии сканирования для {target} успешно обновлены.")
         else:
-            logger.warning(f"Сканирование вернуло ошибку: {result['error']}")
+            logger.warning(f"Сканирование завершилось или было прервано: {result['error']}")
         
         return result
 
@@ -74,6 +73,20 @@ async def do_scan(target: str = Form(...), mode: str = Form(...)):
         
     finally:
         CURRENT_SCAN["status"] = "idle"
+
+@app.post("/scan/stop")
+async def stop_scan():
+    """[НОВЫЙ ЭНДПОИНТ] Кнопка экстренной остановки процесса Nmap"""
+    logger.info("Получен HTTP POST запрос на принудительную остановку сканирования.")
+    success = await scanner.stop_current_scan()
+    
+    if success:
+        CURRENT_SCAN["status"] = "idle"
+        logger.info("Текущий процесс сканирования успешно завершен пользователем.")
+        return {"message": "Сканирование успешно остановлено."}
+    else:
+        logger.warning("Запрос на остановку отклонен: активных процессов Nmap не найдено.")
+        return {"error": "Нет активного сканирования для остановки."}
 
 @app.get("/status")
 async def get_status():
