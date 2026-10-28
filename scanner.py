@@ -6,49 +6,63 @@ logger = logging.getLogger("network_scanner.scanner")
 
 class NetworkScanner:
     async def scan_async(self, target: str, mode: str) -> dict:
-        # Высокоскоростные агрессивные и скрытные пресеты для Kali Linux
+        # Оптимизированные скоростные пресеты
         scan_presets = {
             "stealth": ["-Pn", "-sS", "-T4", "--open", "--min-rate", "1000", "-F"],
             "fast": ["-Pn", "-F", "-T4", "--min-rate", "1000"],
             "aggressive": ["-Pn", "-sV", "-O", "-T4", "--max-retries", "1", "--min-rate", "1000"],
-            "normal": ["-Pn", "-sV", "-T4", "--max-retries", "1", "--min-rate", "800"],
+            "normal": ["-Pn", "-sV", "-T4", "--max-retries", "1", "--min-rate", "1000"],
             "ping": ["-sn", "--min-rate", "1000"]
         }
         
         args = scan_presets.get(mode, scan_presets["normal"])
         full_args = ["-oX", "-"] + args + [target]
         
-        logger.info(f"Запуск асинхронного подпроцесса Nmap: nmap {' '.join(full_args)}")
+        logger.info(f"Запуск независимого процесса Nmap: nmap {' '.join(full_args)}")
         
         try:
-            # Запуск nmap как независимого асинхронного процесса
             proc = await asyncio.create_subprocess_exec(
                 "nmap", *full_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await proc.communicate()
+            stdout_chunks = []
+            # Построчно вычитываем весь буфер до конца работы процесса
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                stdout_chunks.append(line)
+                
+            stderr_data = await proc.stderr.read()
+            await proc.wait()
+            
+            full_stdout = b"".join(stdout_chunks).decode('utf-8', errors='ignore')
             
             if proc.returncode != 0:
-                err_msg = stderr.decode('utf-8', errors='ignore')
-                logger.error(f"Nmap завершился с ошибкой кода {proc.returncode}: {err_msg}")
+                err_msg = stderr_data.decode('utf-8', errors='ignore')
+                logger.error(f"Nmap завершился с ошибкой: {err_msg}")
                 return {"error": f"Nmap error: {err_msg}"}
                 
-            return self.parse_xml_output(stdout.decode('utf-8', errors='ignore'))
+            return self.parse_xml_output(full_stdout)
             
         except Exception as e:
-            logger.error(f"Ошибка вызова подпроцесса Nmap: {e}", exc_info=True)
+            logger.error(f"Ошибка выполнения подпроцесса Nmap: {e}", exc_info=True)
             return {"error": str(e)}
 
     def parse_xml_output(self, xml_data: str) -> dict:
-        """Безопасный парсинг XML-вывода Nmap без падений всего процесса"""
         hosts_data = []
         try:
+            # Проверяем, что XML не пустой и содержит закрывающий тег
+            if not xml_data.strip() or "</nmaprun>" not in xml_data:
+                logger.error("Получен неполный или пустой XML от Nmap.")
+                return {"error": "Получены неполные данные от сканера. Попробуйте еще раз."}
+
             root = ET.fromstring(xml_data)
             for host_node in root.findall("host"):
                 status_node = host_node.find("status")
-                if status_node is封装 and status_node.get("state") != "up":
+                if status_node is not None and status_node.get("state") != "up":
                     continue
                     
                 ip_addr = "0.0.0.0"
@@ -85,11 +99,10 @@ class NetworkScanner:
                     "status": "up", "os": os_name, "ports": ports_list
                 })
                 
+            return {"hosts": hosts_data, "summary": self.generate_summary(hosts_data)}
         except Exception as e:
             logger.error(f"Ошибка разбора XML-структуры: {e}")
             return {"error": f"XML parse error: {e}"}
-            
-        return {"hosts": hosts_data, "summary": self.generate_summary(hosts_data)}
 
     def generate_summary(self, hosts: list) -> dict:
         summary = {"total": len(hosts), "windows": 0, "linux": 0, "printer": 0, "other": 0}
