@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Control Center — Network Scanner</title>
+<script type="text/javascript" src="https://unpkg.com"></script>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1f232c; --border: #2a2f3a;
+    --text: #e6e9ef; --muted: #9aa3b2; --accent: #4f8cff; --danger: #ff4d4f;
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  
+  /* Боковая панель управления */
+  .sidebar { width: 340px; background: var(--panel); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+  h2 { margin: 0; font-size: 18px; color: var(--accent); }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  input, select, button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 10px; border-radius: 6px; outline: none; font-size: 14px; }
+  input:focus, select:focus { border-color: var(--accent); }
+  button { background: var(--accent); color: #fff; cursor: pointer; font-weight: bold; border: none; transition: 0.2s; }
+  button:hover { opacity: 0.9; }
+  .btn-export { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+  .btn-export:hover { background: var(--accent); color: #fff; }
+
+  /* Окно консоли логов */
+  .log-console { background: #08090c; border: 1px solid var(--border); font-family: monospace; font-size: 11px; padding: 10px; height: 180px; overflow-y: auto; border-radius: 6px; color: #a3b3cc; white-space: pre-wrap; margin-top: auto; }
+
+  /* Основной контент */
+  .content { flex: 1; display: flex; flex-direction: column; height: 100%; }
+  .dashboard { padding: 20px; display: flex; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); padding: 15px; border-radius: 8px; flex: 1; text-align: center; }
+  .card-num { font-size: 24px; font-weight: bold; color: var(--accent); }
+  .card-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Рабочая область: Таблица + Граф */
+  .workspace { flex: 1; display: flex; padding: 0 20px 20px 20px; gap: 15px; overflow: hidden; }
+  .table-container { flex: 1.2; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow-y: auto; padding: 10px; }
+  table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+  th { padding: 10px; background: var(--panel-2); color: var(--muted); }
+  td { padding: 10px; border-bottom: 1px solid var(--border); }
+  
+  .graph-container { flex: 1; background: #0b0c10; border: 1px solid var(--border); border-radius: 8px; position: relative; }
+  #network-graph { width: 100%; height: 100%; }
+  .graph-title { position: absolute; top: 10px; left: 10px; background: rgba(23,26,33,0.8); padding: 4px 10px; border-radius: 4px; font-size: 11px; color: var(--muted); border: 1px solid var(--border); z-index: 10; }
+  .loader { display: none; color: var(--accent); font-size: 13px; text-align: center; margin-top: 5px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+  <!-- Боковая панель -->
+  <div class="sidebar">
+    <h2>🖧 NetScan Core</h2>
+    
+    <div class="form-group">
+      <label>Целевая подсеть / IP</label>
+      <input type="text" id="target" value="{{ target }}">
+    </div>
+
+    <div class="form-group">
+      <label>Режим сканирования</label>
+      <select id="mode">
+        <option value="stealth">Скрытный (Stealth SYN)</option>
+        <option value="fast">Быстрый (Top 100 портов)</option>
+        <option value="normal" selected>Стандартный (Сервисы + ОС)</option>
+        <option value="aggressive">Агрессивный (Разведка уязвимостей)</option>
+        <option value="ping">Только Пинг (Обнаружение хостов)</option>
+      </select>
+    </div>
+
+    <button onclick="startScan()">Запустить сканирование</button>
+    <div id="loader" class="loader">Скан запущен. Прогресс в логах ниже...</div>
+    <button class="btn-export" onclick="location.href='/export/html'">Скачать HTML Отчёт</button>
+
+    <!-- Окно живых системных логов -->
+    <label style="margin-top: 10px;">Системные Логи (Live)</label>
+    <div id="console" class="log-console">Инициализация системы логов...</div>
+  </div>
+
+  <!-- Главное окно -->
+  <div class="content">
+    <div class="dashboard">
+      <div class="card"><div class="card-num" id="stat-total">{{ scan_data.summary.total }}</div><div class="card-label">Всего найдено</div></div>
+      <div class="card"><div class="card-num" id="stat-linux">{{ scan_data.summary.linux }}</div><div class="card-label">Linux Хосты</div></div>
+      <div class="card"><div class="card-num" id="stat-windows">{{ scan_data.summary.windows }}</div><div class="card-label">Windows Хосты</div></div>
+    </div>
+
+    <div class="workspace">
+      <!-- Таблица -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr><th>IP Хоста</th><th>ОС</th><th>Открытые порты</th></tr>
+          </thead>
+          <tbody id="hosts-table-body">
+            {% for host in scan_data.hosts %}
+            <tr>
+              <td><b>{{ host.ip }}</b><br><span style="font-size:11px;color:var(--muted)">{{ host.mac }}</span></td>
+              <td>{{ host.os }}</td>
+              <td>
+                {% for p in host.ports %}
+                <span style="background:var(--panel-2); padding:2px 5px; border-radius:4px; margin-right:3px; font-size:11px;">{{ p.port }}</span>
+                {% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Карта Obsidian -->
+      <div class="graph-container">
+        <div class="graph-title">Obsidian Network Graph View</div>
+        <div id="network-graph"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let networkGraph = null;
+
+    // Функция обновления логов из API эндпоинта
+    async function updateLogs() {
+        try {
+            const response = await fetch('/logs');
+            const data = await response.json();
+            const consoleDiv = document.getElementById('console');
+            consoleDiv.innerText = data.logs.join('');
+            consoleDiv.scrollTop = consoleDiv.scrollHeight; // Скролл вниз
+        } catch (e) {
+            console.error("Ошибка обновления логов", e);
+        }
+    }
+
+    // Запуск поллинга логов каждые 3 секунды
+    setInterval(updateLogs, 3000);
+    updateLogs();
+
+    function renderGraph(hosts, targetNet) {
+        const container = document.getElementById('network-graph');
+        const nodes = [{ id: 'root', label: targetNet, color: '#4f8cff', size: 22, shape: 'dot' }];
+        const edges = [];
+
+        hosts.forEach(host => {
+            let nodeColor = '#9aa3b2'; 
+            if(host.os.toLowerCase().includes('windows')) nodeColor = '#60a5fa';
+            if(host.os.toLowerCase().includes('linux')) nodeColor = '#34d399';
+
+            nodes.push({ id: host.ip, label: host.ip, color: nodeColor, size: 14, shape: 'dot' });
+            edges.push({ from: 'root', to: host.ip, color: { color: '#2a2f3a', highlight: '#4f8cff' } });
+        });
+
+        const data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+        const options = {
+            physics: { barnesHut: { gravitationalConstant: -2000, centralGravity: 0.3, springLength: 95 } },
+            nodes: { font: { color: '#e6e9ef', size: 11 } }
+        };
+        if(networkGraph) networkGraph.destroy();
+        networkGraph = new vis.Network(container, data, options);
+    }
+
+    async function startScan() {
+        const target = document.getElementById('target').value;
+        const mode = document.getElementById('mode').value;
+        const loader = document.getElementById('loader');
+        
+        loader.style.display = 'block';
+
+        const formData = new FormData();
+        formData.append('target', target);
+        formData.append('mode', mode);
+
+        try {
+            const response = await fetch('/scan', { method: 'POST', body: formData });
+            const data = await response.json();
+            
+            if(data.error) {
+                alert(data.error);
+                return;
+            }
+
+            document.getElementById('stat-total').innerText = data.summary.total;
+            document.getElementById('stat-linux').innerText = data.summary.linux;
+            document.getElementById('stat-windows').innerText = data.summary.windows;
+
+            const tbody = document.getElementById('hosts-table-body');
+            tbody.innerHTML = '';
+            data.hosts.forEach(h => {
+                let portsHtml = h.ports.map(p => `<span style="background:var(--panel-2); padding:2px 5px; border-radius:4px; margin-right:3px; font-size:11px;">${p.port}</span>`).join('');
+                tbody.innerHTML += `<tr><td><b>${h.ip}</b><br><span style="font-size:11px;color:var(--muted)">${h.mac}</span></td><td>${h.os}</td><td>${portsHtml}</td></tr>`;
+            });
+
+            renderGraph(data.hosts, target);
+            updateLogs();
+
+        } catch (e) {
+            alert("Произошла ошибка при сканировании");
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    renderGraph([], "{{ target }}");
+  </script>
+</body>
+</html>
