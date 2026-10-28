@@ -37,7 +37,14 @@ except Exception as e:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     logger.info("Клиент подключился к Web UI панели управления.")
-    return templates.TemplateResponse("index.html", {"request": request, "scan_data": CURRENT_SCAN, "target": CURRENT_SCAN["target"]})
+    return templates.TemplateResponse(
+        name="index.html", 
+        context={
+            "request": request, 
+            "scan_data": CURRENT_SCAN, 
+            "target": CURRENT_SCAN["target"]
+        }
+    )
 
 
 @app.post("/scan")
