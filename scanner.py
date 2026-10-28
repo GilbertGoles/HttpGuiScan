@@ -6,7 +6,7 @@ logger = logging.getLogger("network_scanner.scanner")
 
 class NetworkScanner:
     async def scan_async(self, target: str, mode: str) -> dict:
-        # Оптимизированные скоростные пресеты
+        # Высокоскоростные пресеты
         scan_presets = {
             "stealth": ["-Pn", "-sS", "-T4", "--open", "--min-rate", "1000", "-F"],
             "fast": ["-Pn", "-F", "-T4", "--min-rate", "1000"],
@@ -16,19 +16,21 @@ class NetworkScanner:
         }
         
         args = scan_presets.get(mode, scan_presets["normal"])
-        full_args = ["-oX", "-"] + args + [target]
         
-        logger.info(f"Запуск независимого процесса Nmap: nmap {' '.join(full_args)}")
+        # ИСПРАВЛЕНО: Явно добавляем "sudo" в начало команды, чтобы у Nmap были raw-сокеты под Kali
+        full_args = ["sudo", "nmap", "-oX", "-"] + args + [target]
+        
+        logger.info(f"Запуск процесса: {' '.join(full_args)}")
         
         try:
+            # Вызываем через exec
             proc = await asyncio.create_subprocess_exec(
-                "nmap", *full_args,
+                full_args[0], *full_args[1:],
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
             stdout_chunks = []
-            # Построчно вычитываем весь буфер до конца работы процесса
             while True:
                 line = await proc.stdout.readline()
                 if not line:
@@ -39,10 +41,13 @@ class NetworkScanner:
             await proc.wait()
             
             full_stdout = b"".join(stdout_chunks).decode('utf-8', errors='ignore')
+            err_msg = stderr_data.decode('utf-8', errors='ignore').strip()
             
             if proc.returncode != 0:
-                err_msg = stderr_data.decode('utf-8', errors='ignore')
-                logger.error(f"Nmap завершился с ошибкой: {err_msg}")
+                logger.error(f"Nmap завершился с кодом {proc.returncode}. Ошибка: {err_msg}")
+                # Если stderr пустой, даем понятную подсказку
+                if not err_msg:
+                    err_msg = f"Процесс завершился с кодом {proc.returncode} (возможен сбой прав или неверный IP)"
                 return {"error": f"Nmap error: {err_msg}"}
                 
             return self.parse_xml_output(full_stdout)
@@ -54,10 +59,9 @@ class NetworkScanner:
     def parse_xml_output(self, xml_data: str) -> dict:
         hosts_data = []
         try:
-            # Проверяем, что XML не пустой и содержит закрывающий тег
             if not xml_data.strip() or "</nmaprun>" not in xml_data:
                 logger.error("Получен неполный или пустой XML от Nmap.")
-                return {"error": "Получены неполные данные от сканера. Попробуйте еще раз."}
+                return {"error": "Получены некорректные или пустые данные от Nmap."}
 
             root = ET.fromstring(xml_data)
             for host_node in root.findall("host"):
