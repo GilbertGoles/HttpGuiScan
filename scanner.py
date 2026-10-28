@@ -17,15 +17,14 @@ class NetworkScanner:
         
         args = scan_presets.get(mode, scan_presets["normal"])
         
-        # ИСПРАВЛЕНО: Явно добавляем "sudo" в начало команды, чтобы у Nmap были raw-сокеты под Kali
-        full_args = ["sudo", "nmap", "-oX", "-"] + args + [target]
+        # ИСПРАВЛЕНО: Убираем "sudo" из массива. Процесс унаследует root от main.py автоматически.
+        full_args = ["nmap", "-oX", "-"] + args + [target]
         
         logger.info(f"Запуск процесса: {' '.join(full_args)}")
         
         try:
-            # Вызываем через exec
             proc = await asyncio.create_subprocess_exec(
-                full_args[0], *full_args[1:],
+                "nmap", *full_args[1:],
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -45,9 +44,8 @@ class NetworkScanner:
             
             if proc.returncode != 0:
                 logger.error(f"Nmap завершился с кодом {proc.returncode}. Ошибка: {err_msg}")
-                # Если stderr пустой, даем понятную подсказку
                 if not err_msg:
-                    err_msg = f"Процесс завершился с кодом {proc.returncode} (возможен сбой прав или неверный IP)"
+                    err_msg = f"Процесс завершился с кодом {proc.returncode} (сбой сигналов системы или прав)"
                 return {"error": f"Nmap error: {err_msg}"}
                 
             return self.parse_xml_output(full_stdout)
