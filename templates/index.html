@@ -79,10 +79,10 @@
 
   <!-- Главное окно -->
   <div class="content">
-    <div class="dashboard">
-      <div class="card"><div class="card-num" id="stat-total">{{ scan_data.summary.total }}</div><div class="card-label">Всего найдено</div></div>
-      <div class="card"><div class="card-num" id="stat-linux">{{ scan_data.summary.linux }}</div><div class="card-label">Linux Хосты</div></div>
-      <div class="card"><div class="card-num" id="stat-windows">{{ scan_data.summary.windows }}</div><div class="card-label">Windows Хосты</div></div>
+        <div class="dashboard">
+      <div class="card"><div class="card-num" id="stat-total">{{ scan_data['summary']['total'] }}</div><div class="card-label">Всего найдено</div></div>
+      <div class="card"><div class="card-num" id="stat-linux">{{ scan_data['summary']['linux'] }}</div><div class="card-label">Linux Хосты</div></div>
+      <div class="card"><div class="card-num" id="stat-windows">{{ scan_data['summary']['windows'] }}</div><div class="card-label">Windows Хосты</div></div>
     </div>
 
     <div class="workspace">
@@ -200,7 +200,7 @@
         }
     }
 
-    renderGraph([], "{{ target }}");
+        renderGraph([], "{{ target }}");
   </script>
 </body>
 </html>
