@@ -179,17 +179,30 @@
     updateLogs();
 
     // Отрисовка интерактивного графа
-    function renderGraph(hosts, targetNet) {
+        function renderGraph(hosts, targetNet) {
         const container = document.getElementById('network-graph');
         const nodes = [{ id: 'root', label: targetNet, color: '#4f8cff', size: 22, shape: 'dot' }];
         const edges = [];
 
         hosts.forEach(host => {
-            let nodeColor = '#9aa3b2'; 
-            if(host.os.toLowerCase().includes('windows')) nodeColor = '#60a5fa';
-            if(host.os.toLowerCase().includes('linux')) nodeColor = '#34d399';
+            let nodeColor = '#9aa3b2'; // Цвет по умолчанию для неопределенных ОС
+            
+            // ИСПРАВЛЕНО: Безопасная проверка существования строки ОС перед парсингом
+            if (host.os && typeof host.os === 'string') {
+                let osLower = host.os.toLowerCase();
+                if (osLower.includes('windows')) nodeColor = '#60a5fa';
+                else if (osLower.includes('linux') || osLower.includes('ubuntu') || osLower.includes('debian')) nodeColor = '#34d399';
+                else if (osLower.includes('embedded') || osLower.includes('cisco') || osLower.includes('router')) nodeColor = '#fbbf24'; // Оранжевый для сетевого оборудования
+            }
 
-            nodes.push({ id: host.ip, label: host.ip, color: nodeColor, size: 14, shape: 'dot' });
+            nodes.push({ 
+                id: host.ip, 
+                label: host.ip, 
+                color: nodeColor, 
+                size: 14, 
+                shape: 'dot',
+                title: `OS: ${host.os || 'Unknown'}`
+            });
             edges.push({ from: 'root', to: host.ip, color: { color: '#2a2f3a', highlight: '#4f8cff' } });
         });
 
@@ -201,6 +214,7 @@
         if(networkGraph) networkGraph.destroy();
         networkGraph = new vis.Network(container, data, options);
     }
+
 
     // Запуск сканирования
     async function startScan() {
