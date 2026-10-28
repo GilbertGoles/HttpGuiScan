@@ -1,5 +1,5 @@
-import json
 import logging
+import os
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -8,7 +8,7 @@ import uvicorn
 from reporter import generate_html_report
 from scanner import NetworkScanner
 
-# Глобальная настройка логирования (вывод в файл и консоль)
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -19,7 +19,10 @@ logger = logging.getLogger("network_scanner.main")
 logger.info("Запуск главного сервера NetScan ядра...")
 
 app = FastAPI(title="Network Scanner Core")
-templates = Jinja2Templates(directory="templates")
+
+# Жестко привязываем пути к текущей папке скрипта, чтобы избежать проблем из-за sudo
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 CURRENT_SCAN = {
     "hosts": [],
@@ -37,13 +40,14 @@ except Exception as e:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     logger.info("Клиент подключился к Web UI панели управления.")
+    # ИССПРАВЛЕНО: Передаем context строго как именованный аргумент
     return templates.TemplateResponse(
-        name="index.html", 
+        name="index.html",
         context={
-            "request": request, 
-            "scan_data": CURRENT_SCAN, 
-            "target": CURRENT_SCAN["target"]
-        }
+            "request": request,
+            "scan_data": CURRENT_SCAN,
+            "target": CURRENT_SCAN["target"],
+        },
     )
 
 
@@ -62,7 +66,7 @@ async def do_scan(target: str = Form(...), mode: str = Form(...)):
         CURRENT_SCAN["hosts"] = result["hosts"]
         CURRENT_SCAN["summary"] = result["summary"]
         CURRENT_SCAN["target"] = target
-        logger.info(f"Данные текущей сессии сканирования для {target} успешно обновлены в памяти.")
+        logger.info(f"Данные текущей сессии сканирования для {target} успешно обновлены.")
     else:
         logger.warning(f"Сканирование завершилось ошибкой для цели {target}.")
 
@@ -82,15 +86,13 @@ async def export_html():
 
 @app.get("/logs")
 async def get_logs():
-    """Дополнительный эндпоинт для чтения последних 50 строк лог-файла в реальном времени."""
     try:
-        with open("scanner.log", "r", encoding="utf-8") as f:
+        with open(os.path.join(BASE_DIR, "scanner.log"), "r", encoding="utf-8") as f:
             lines = f.readlines()
-            return {"logs": lines[-50:]}  # Возвращаем последние 50 записей лога
+            return {"logs": lines[-50:]}
     except Exception as e:
         return {"logs": [f"Не удалось прочитать файл логов: {e}"]}
 
 
 if __name__ == "__main__":
-    logger.info("Запуск веб-сервера Uvicorn на http://127.0.0.1:8000")
     uvicorn.run("main.py:app", host="127.0.0.1", port=8000, reload=True)
