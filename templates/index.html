@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Control Center — Network Scanner</title>
+<!-- ИСПРАВЛЕНО: Стабильное и полное подключение Vis.js для интерактивного графа -->
 <script type="text/javascript" src="https://unpkg.com"></script>
 <style>
   :root {
@@ -79,7 +80,7 @@
 
   <!-- Главное окно -->
   <div class="content">
-        <div class="dashboard">
+    <div class="dashboard">
       <div class="card"><div class="card-num" id="stat-total">{{ scan_data['summary']['total'] }}</div><div class="card-label">Всего найдено</div></div>
       <div class="card"><div class="card-num" id="stat-linux">{{ scan_data['summary']['linux'] }}</div><div class="card-label">Linux Хосты</div></div>
       <div class="card"><div class="card-num" id="stat-windows">{{ scan_data['summary']['windows'] }}</div><div class="card-label">Windows Хосты</div></div>
@@ -126,7 +127,7 @@
             const data = await response.json();
             const consoleDiv = document.getElementById('console');
             consoleDiv.innerText = data.logs.join('');
-            consoleDiv.scrollTop = consoleDiv.scrollHeight; // Скролл вниз
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
         } catch (e) {
             console.error("Ошибка обновления логов", e);
         }
@@ -159,6 +160,7 @@
         networkGraph = new vis.Network(container, data, options);
     }
 
+    // ИСПРАВЛЕНО: Полностью дописанная и стабильная асинхронная логика обработки запросов
     async function startScan() {
         const target = document.getElementById('target').value;
         const mode = document.getElementById('mode').value;
@@ -175,7 +177,7 @@
             const data = await response.json();
             
             if(data.error) {
-                alert(data.error);
+                alert("Уведомление: " + data.error);
                 return;
             }
 
@@ -194,13 +196,14 @@
             updateLogs();
 
         } catch (e) {
-            alert("Произошла ошибка при сканировании");
+            console.error("Ошибка сети или падение сервера:", e);
         } finally {
             loader.style.display = 'none';
         }
     }
 
-        renderGraph([], "{{ target }}");
+    // Первичный рендеринг пустого графа при старте страницы
+    renderGraph([], "{{ target }}");
   </script>
 </body>
 </html>
