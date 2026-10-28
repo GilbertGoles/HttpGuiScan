@@ -20,7 +20,7 @@ logger.info("Запуск главного сервера NetScan ядра...")
 
 app = FastAPI(title="Network Scanner Core")
 
-# Жестко привязываем пути к текущей папке скрипта, чтобы избежать проблем из-за sudo
+# Привязка путей к текущей папке скрипта
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
@@ -40,14 +40,15 @@ except Exception as e:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     logger.info("Клиент подключился к Web UI панели управления.")
-    # ИССПРАВЛЕНО: Передаем context строго как именованный аргумент
+    # ЖЕЛЕЗОБЕТОННЫЙ СИНТАКСИС: Передаем именованный context, 
+    # где внутри обязательно лежит "request": request
     return templates.TemplateResponse(
         name="index.html",
         context={
             "request": request,
             "scan_data": CURRENT_SCAN,
             "target": CURRENT_SCAN["target"],
-        },
+        }
     )
 
 
@@ -93,6 +94,9 @@ async def get_logs():
     except Exception as e:
         return {"logs": [f"Не удалось прочитать файл логов: {e}"]}
 
+
+if __name__ == "__main__":
+    uvicorn.run("main.py:app", host="127.0.0.1", port=8000, reload=True)
 
 if __name__ == "__main__":
     uvicorn.run("main.py:app", host="127.0.0.1", port=8000, reload=True)
