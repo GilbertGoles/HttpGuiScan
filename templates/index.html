@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <title>Control Center — Network Scanner</title>
-<!-- ИСПРАВЛЕНО: Стабильное и полное подключение Vis.js для интерактивного графа -->
+<!-- Подключение полной автономной библиотеки Vis.js для рендеринга интерактивного графа -->
 <script type="text/javascript" src="https://unpkg.com"></script>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --panel-2: #1f232c; --border: #2a2f3a;
-    --text: #e6e9ef; --muted: #9aa3b2; --accent: #4f8cff; --danger: #ff4d4f;
+    --text: #e6e9ef; --muted: #9aa3b2; --accent: #4f8cff; --danger: #ff4d4f; --warn: #f5a524;
   }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; display: flex; height: 100vh; overflow: hidden; }
   
@@ -19,7 +19,11 @@
   label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
   input, select, button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 10px; border-radius: 6px; outline: none; font-size: 14px; }
   input:focus, select:focus { border-color: var(--accent); }
-  button { background: var(--accent); color: #fff; cursor: pointer; font-weight: bold; border: none; transition: 0.2s; }
+  
+  /* Контейнер кнопок */
+  .btn-container { display: flex; gap: 10px; }
+  .btn-start { background: var(--accent); color: #fff; flex: 2; cursor: pointer; font-weight: bold; border: none; }
+  .btn-stop { background: var(--danger); color: #fff; flex: 1; cursor: pointer; font-weight: bold; border: none; display: none; }
   button:hover { opacity: 0.9; }
   .btn-export { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
   .btn-export:hover { background: var(--accent); color: #fff; }
@@ -41,10 +45,11 @@
   th { padding: 10px; background: var(--panel-2); color: var(--muted); }
   td { padding: 10px; border-bottom: 1px solid var(--border); }
   
+  /* Контейнер графа */
   .graph-container { flex: 1; background: #0b0c10; border: 1px solid var(--border); border-radius: 8px; position: relative; }
   #network-graph { width: 100%; height: 100%; }
   .graph-title { position: absolute; top: 10px; left: 10px; background: rgba(23,26,33,0.8); padding: 4px 10px; border-radius: 4px; font-size: 11px; color: var(--muted); border: 1px solid var(--border); z-index: 10; }
-  .loader { display: none; color: var(--accent); font-size: 13px; text-align: center; margin-top: 5px; font-weight: bold; }
+  .loader { display: none; color: var(--warn); font-size: 13px; text-align: center; margin-top: 5px; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -69,8 +74,13 @@
       </select>
     </div>
 
-    <button onclick="startScan()">Запустить сканирование</button>
-    <div id="loader" class="loader">Скан запущен. Прогресс в логах ниже...</div>
+    <!-- Кнопки управления -->
+    <div class="btn-container">
+        <button id="btn-start" class="btn-start" onclick="startScan()">Сканировать</button>
+        <button id="btn-stop" class="btn-stop" onclick="stopScan()">Стоп</button>
+    </div>
+    
+    <div id="loader" class="loader">Идет сканирование подсети Nmap...</div>
     <button class="btn-export" onclick="location.href='/export/html'">Скачать HTML Отчёт</button>
 
     <!-- Окно живых системных логов -->
@@ -87,7 +97,7 @@
     </div>
 
     <div class="workspace">
-      <!-- Таблица -->
+      <!-- Таблица результатов -->
       <div class="table-container">
         <table>
           <thead>
@@ -109,18 +119,50 @@
         </table>
       </div>
 
-      <!-- Карта Obsidian -->
+      <!-- Граф в стиле Obsidian -->
       <div class="graph-container">
         <div class="graph-title">Obsidian Network Graph View</div>
         <div id="network-graph"></div>
       </div>
     </div>
   </div>
-
   <script>
     let networkGraph = null;
 
-    // Функция обновления логов из API эндпоинта
+    // Генерация звука окончания сканирования через встроенный Web Audio API
+    function playNotificationSound() {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            let osc1 = audioCtx.createOscillator();
+            let gain1 = audioCtx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime); 
+            gain1.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc1.connect(gain1);
+            gain1.connect(audioCtx.destination);
+            osc1.start();
+            osc1.stop(audioCtx.currentTime + 0.15);
+
+            setTimeout(() => {
+                let osc2 = audioCtx.createOscillator();
+                let gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.setValueAtTime(880, audioCtx.currentTime); 
+                gain2.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.start();
+                osc2.stop(audioCtx.currentTime + 0.25);
+            }, 120);
+        } catch (e) {
+            console.error("Браузер заблокировал аудио поток:", e);
+        }
+    }
+
+    // Чтение логов с бэкенда
     async function updateLogs() {
         try {
             const response = await fetch('/logs');
@@ -133,10 +175,10 @@
         }
     }
 
-    // Запуск поллинга логов каждые 3 секунды
     setInterval(updateLogs, 3000);
     updateLogs();
 
+    // Отрисовка интерактивного графа
     function renderGraph(hosts, targetNet) {
         const container = document.getElementById('network-graph');
         const nodes = [{ id: 'root', label: targetNet, color: '#4f8cff', size: 22, shape: 'dot' }];
@@ -160,13 +202,15 @@
         networkGraph = new vis.Network(container, data, options);
     }
 
-    // ИСПРАВЛЕНО: Полностью дописанная и стабильная асинхронная логика обработки запросов
+    // Запуск сканирования
     async function startScan() {
         const target = document.getElementById('target').value;
         const mode = document.getElementById('mode').value;
         const loader = document.getElementById('loader');
+        const btnStop = document.getElementById('btn-stop');
         
         loader.style.display = 'block';
+        btnStop.style.display = 'block';
 
         const formData = new FormData();
         formData.append('target', target);
@@ -194,15 +238,34 @@
 
             renderGraph(data.hosts, target);
             updateLogs();
+            playNotificationSound();
 
         } catch (e) {
-            console.error("Ошибка сети или падение сервера:", e);
+            console.error("Сбой сети:", e);
         } finally {
             loader.style.display = 'none';
+            btnStop.style.display = 'none';
         }
     }
 
-    // Первичный рендеринг пустого графа при старте страницы
+    // Остановка сканирования
+    async function stopScan() {
+        if(confirm("Вы уверены, что хотите остановить текущее сканирование Nmap?")) {
+            try {
+                const response = await fetch('/scan/stop', { method: 'POST' });
+                const data = await response.json();
+                if (data.message) {
+                    alert(data.message);
+                } else if (data.error) {
+                    alert("Ошибка: " + data.error);
+                }
+            } catch (e) {
+                console.error("Не удалось отправить сигнал остановки:", e);
+            }
+        }
+    }
+
+    // Инициализация пустого графа
     renderGraph([], "{{ target }}");
   </script>
 </body>
